@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+# never commit these: they identify real people and break fingerprint privacy
+roster.txt
+salt
+baseline*.json
