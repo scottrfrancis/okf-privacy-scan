@@ -77,8 +77,14 @@ matching, so nested `.gitattributes` files and nested repositories are handled. 
 locations you have not encrypted, pass `--sensitive-path GLOB`.
 
 This matters more than the content detectors. On the knowledge base the tool was developed against,
-two thirds of the plaintext files in encrypted paths carried no identifier and no declaration at
-all, and would have been invisible without it.
+nearly half of the records in encrypted paths carried no identifier and no declaration, and would
+have been invisible without it. The split is the useful part. Markdown files have front matter, and
+three quarters of them declared themselves sensitive. The spreadsheet, text and XML exports beside
+them have nowhere to put a declaration, and 135 of 137 said nothing at all.
+
+It also flags code and chart assets that happen to sit in an encrypted path. On that knowledge base
+there were 247 of them, and 2 held anything personal. Separating them from records is the next
+change the scanner needs.
 
 For each file it also reports which agents can reach it and by what route: `cloud-model`, `web`, or
 `chat-relay`. A local model reads as reassuring and says nothing about where the answer it wrote
