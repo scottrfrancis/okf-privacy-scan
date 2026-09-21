@@ -17,7 +17,9 @@ from .harnesses import Grant
 __all__ = ["Exposure", "Result", "Diff", "assess", "diff"]
 
 SKIP_DIRS = {".git", ".hg", ".svn", "node_modules", "__pycache__", ".venv", "venv"}
-DEFAULT_MAX_BYTES = 1_000_000
+DEFAULT_MAX_BYTES = 512 * 1024 * 1024   # a safety cap, not a filter
+DEFAULT_CHUNK = 1024 * 1024
+_SNIFF = 8192
 VALUELESS = {"declared-sensitive"}
 
 
@@ -116,19 +118,38 @@ class Result:
         return out
 
 
-def _readable_text(path: Path, max_bytes: int) -> tuple[str | None, str | None]:
+def _classify(path: Path, max_bytes: int) -> str | None:
+    """Return a reason to skip, or None if the file should be scanned."""
     try:
         if path.stat().st_size > max_bytes:
-            return None, "large"
-        raw = path.read_bytes()
+            return "large"
+        with path.open("rb") as fh:
+            head = fh.read(_SNIFF)
     except OSError:
-        return None, "unreadable"
-    if b"\x00" in raw:
-        return None, "binary"
-    try:
-        return raw.decode("utf-8"), None
-    except UnicodeDecodeError:
-        return None, "binary"
+        return "unreadable"
+    return "binary" if b"\x00" in head else None
+
+
+def _chunks(path: Path, chunk_bytes: int):
+    """Yield (text, lines_before) in line-aligned chunks.
+
+    Every detector matches within a single line, so splitting on newlines cannot cut
+    a match in half. Large files are streamed rather than skipped, because agent
+    transcripts are routinely far over any sensible whole-file limit.
+    """
+    buf: list[str] = []
+    size = 0
+    before = 0
+    with path.open("r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            buf.append(line)
+            size += len(line)
+            if size >= chunk_bytes:
+                yield "".join(buf), before
+                before += len(buf)
+                buf, size = [], 0
+    if buf:
+        yield "".join(buf), before
 
 
 def _walk(targets, max_bytes):
@@ -144,13 +165,14 @@ def _walk(targets, max_bytes):
                 yield path
 
 
-def assess(targets, grants, salt: bytes, roster=None, max_bytes: int = DEFAULT_MAX_BYTES) -> Result:
+def assess(targets, grants, salt: bytes, roster=None, max_bytes: int = DEFAULT_MAX_BYTES,
+           chunk_bytes: int = DEFAULT_CHUNK) -> Result:
     result = Result()
     per_identifier: dict[str, set[str]] = {}
     grants = list(grants)
 
     for path in _walk(targets, max_bytes):
-        text, why = _readable_text(path, max_bytes)
+        why = _classify(path, max_bytes)
         if why == "large":
             result.skipped_large += 1
             continue
@@ -159,7 +181,10 @@ def assess(targets, grants, salt: bytes, roster=None, max_bytes: int = DEFAULT_M
             continue
         result.scanned_files += 1
 
-        found = detectors.scan_text(text, salt=salt, roster=roster)
+        found = []
+        for i, (text, before) in enumerate(_chunks(path, chunk_bytes)):
+            found += detectors.scan_text(text, salt=salt, roster=roster,
+                                         front_matter=(i == 0), line_offset=before)
         if not found:
             continue
 

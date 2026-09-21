@@ -88,8 +88,14 @@ def _valid_gov_id(area: str, group: str, serial: str) -> bool:
     return group != "00" and serial != "0000"
 
 
-def scan_text(text: str, salt: bytes, roster: list[str] | None = None) -> list[Finding]:
-    """Return findings for one document. Never returns the matched text."""
+def scan_text(text: str, salt: bytes, roster: list[str] | None = None,
+              front_matter: bool = True, line_offset: int = 0) -> list[Finding]:
+    """Return findings for a document or a chunk of one. Never returns the matched text.
+
+    Pass front_matter=False for any chunk after the first, since front matter only
+    means something at the top of a file. line_offset shifts reported line numbers
+    so chunked scans report the line in the whole file.
+    """
     found: list[Finding] = []
     claimed: list[tuple[int, int]] = []
 
@@ -148,12 +154,15 @@ def scan_text(text: str, salt: bytes, roster: list[str] | None = None) -> list[F
                             f"roster name, {len(needle)} characters", "medium")
                 )
 
-    fm = _FRONT_MATTER.search(text)
+    fm = _FRONT_MATTER.search(text) if front_matter else None
     if fm and _DECLARED.search(fm.group(1)):
         found.append(
             Finding("declared-sensitive", 1, _fingerprint(salt, "declared"),
                     "front matter declares this sensitive")
         )
 
+    if line_offset:
+        found = [Finding(f.detector, f.line + line_offset, f.fingerprint, f.hint, f.confidence)
+                 for f in found]
     found.sort(key=lambda f: (f.line, f.detector))
     return found

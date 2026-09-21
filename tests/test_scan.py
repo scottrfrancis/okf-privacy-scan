@@ -121,3 +121,31 @@ class TestDetectiveMode(ScanCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLargeFilesAreStreamedNotSkipped(ScanCase):
+    """Agent transcripts are routinely over a megabyte. Skipping them skips the point."""
+
+    def test_identifier_near_the_end_of_a_large_file_is_found(self):
+        body = "filler line\n" * 5000 + "SSN: 123-45-6789\n"
+        self.write("work/session.jsonl", body)
+        result = scan.assess([self.root], [], salt=b"s", chunk_bytes=4096)
+        self.assertEqual(result.finding_count, 1)
+        self.assertEqual(result.skipped_large, 0)
+
+    def test_a_match_is_counted_once_across_chunk_boundaries(self):
+        body = ("SSN: 123-45-6789\n" + "x" * 90 + "\n") * 200
+        self.write("work/s.jsonl", body)
+        result = scan.assess([self.root], [], salt=b"s", chunk_bytes=512)
+        self.assertEqual(result.finding_count, 200)
+
+    def test_front_matter_is_only_honoured_at_the_top_of_the_file(self):
+        later = "---\nvisibility: sensitive\n---\n"
+        self.write("work/notes.md", "# heading\n" + "line\n" * 2000 + later)
+        result = scan.assess([self.root], [], salt=b"s", chunk_bytes=256)
+        self.assertEqual(result.finding_count, 0)
+
+    def test_front_matter_at_the_top_still_counts_when_chunked(self):
+        self.write("work/notes.md", "---\nvisibility: sensitive\n---\n" + "line\n" * 2000)
+        result = scan.assess([self.root], [], salt=b"s", chunk_bytes=256)
+        self.assertEqual([e.detectors for e in result.exposures], [("declared-sensitive",)])
