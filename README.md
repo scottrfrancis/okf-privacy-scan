@@ -70,6 +70,16 @@ Private key blocks. Connection strings with an inline password. Front matter tha
 sensitive. And names from a roster you supply, because the identifiers that leak are the ones
 nobody thought to enumerate.
 
+It also finds sensitivity that comes from where a file sits. A path you configured for encryption
+is a path you consider sensitive, and transparent encryption decrypts in the working tree, so a
+plaintext file in such a path is reported as `encrypted-location`. This uses git's own attribute
+matching, so nested `.gitattributes` files and nested repositories are handled. For sensitive
+locations you have not encrypted, pass `--sensitive-path GLOB`.
+
+This matters more than the content detectors. On the knowledge base the tool was developed against,
+two thirds of the plaintext files in encrypted paths carried no identifier and no declaration at
+all, and would have been invisible without it.
+
 For each file it also reports which agents can reach it and by what route: `cloud-model`, `web`, or
 `chat-relay`. A local model reads as reassuring and says nothing about where the answer it wrote
 ends up.
@@ -81,9 +91,9 @@ one means removing it in one place leaves it live elsewhere.
 
 These limits are real, and the report states the ones it can detect.
 
-It cannot see sensitivity that comes only from location. A file in a medical folder that carries no
-identifier and no declaration is invisible to it. On the knowledge base it was developed against,
-that is roughly a fifth of the sensitive files.
+It sees location only where you have said something about it, by encrypting the path or declaring
+it with `--sensitive-path`. A medical folder that is neither, holding files with no identifier and
+no declaration, is invisible to it.
 
 It cannot see identity in prose. A clinical note or a client narrative that names nobody on the
 roster and contains no structured identifier passes clean. Identity in narrative is spread across

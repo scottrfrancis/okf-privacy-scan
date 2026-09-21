@@ -60,7 +60,9 @@ the user supplied no `--assume-root`.
 one means rotating or removing it in one place leaves it live elsewhere.
 
 `by_detector` breaks the findings down. `connection-string` and `private-key` are live credentials
-and come first.
+and come first. `encrypted-location` means plaintext in a path configured for encryption: the
+encryption protects the copy on somebody else's disk and not the one an agent can open. It is
+usually the largest number, and most of those files contain nothing a content detector would find.
 
 `sensitive_files` above `reachable` means some sensitive content is outside every agent grant. That
 is good, and not a reason to relax.
@@ -105,8 +107,8 @@ every saved baseline report everything as new.
 
 Say so when it matters to the user's question.
 
-It cannot see sensitivity that comes only from location. A file in a medical folder that carries no
-identifier and no front-matter declaration is invisible to it.
+It sees location only where the user has said something about it, by encrypting the path or
+declaring it with `--sensitive-path`. Ask whether any sensitive folders are neither.
 
 It cannot see a clinical note or a client narrative that names nobody on the roster and contains no
 structured identifier. Prose is where identity hides.
