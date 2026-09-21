@@ -86,3 +86,48 @@ class TestUnparsedConfigsAreGrayNotAbsent(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestProjectLevelAndImplicitRoots(HarnessCase):
+    """The grant that matters most is the one no config file records."""
+
+    def test_a_project_with_a_claude_dir_is_an_implicit_working_root(self):
+        proj = self.home / "work" / "blog"
+        (proj / ".claude").mkdir(parents=True)
+        grants, _ = harnesses.discover_with_gaps(self.home, search_roots=[self.home / "work"])
+        implicit = [g for g in grants if g.kind == "implicit"]
+        self.assertEqual([g.root for g in implicit], [proj])
+        self.assertEqual(implicit[0].agent, "claude-code")
+
+    def test_project_level_additional_directories_are_read(self):
+        proj = self.home / "work" / "blog"
+        self.write("work/blog/.claude/settings.local.json",
+                   {"permissions": {"additionalDirectories": ["/data/shared"]}})
+        grants, _ = harnesses.discover_with_gaps(self.home, search_roots=[self.home / "work"])
+        self.assertIn(Path("/data/shared"), [g.root for g in grants])
+
+    def test_malformed_project_settings_are_a_gap(self):
+        self.write("work/blog/.claude/settings.local.json", "{nope")
+        _, gaps = harnesses.discover_with_gaps(self.home, search_roots=[self.home / "work"])
+        self.assertEqual(len(gaps), 1)
+
+    def test_git_and_vendor_trees_are_not_searched(self):
+        (self.home / "work" / "node_modules" / "pkg" / ".claude").mkdir(parents=True)
+        grants, _ = harnesses.discover_with_gaps(self.home, search_roots=[self.home / "work"])
+        self.assertEqual([g for g in grants if g.kind == "implicit"], [])
+
+    def test_declared_grants_default_to_kind_declared(self):
+        self.write(".claude/settings.json", {"additionalDirectories": ["/d"]})
+        self.assertEqual(harnesses.discover(self.home)[0].kind, "declared")
+
+    def test_user_asserted_roots_are_included(self):
+        grants, _ = harnesses.discover_with_gaps(self.home, assumed_roots=[Path("/launch/here")])
+        [g] = grants
+        self.assertEqual((g.root, g.kind), (Path("/launch/here"), "assumed"))
+
+
+class TestGlobalConfigIsNotALaunchRoot(HarnessCase):
+    def test_home_dot_claude_does_not_make_home_an_implicit_root(self):
+        (self.home / ".claude").mkdir()
+        grants, _ = harnesses.discover_with_gaps(self.home, search_roots=[self.home])
+        self.assertNotIn(self.home, [g.root for g in grants if g.kind == "implicit"])

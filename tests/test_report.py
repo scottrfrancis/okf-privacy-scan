@@ -52,3 +52,51 @@ class TestCopies(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSummaryIsSafeForAnAgentToRead(unittest.TestCase):
+    """An agent running the scan is itself a crossing. Paths are disclosure too."""
+
+    def setUp(self):
+        self.r = Result(
+            exposures=[
+                exposure("/kb/health/dr-aurelia-vance.md", agents=["claude-code"], egress=["cloud-model"]),
+                exposure("/kb/family/grandmother-ssn.md", detectors=("gov-id", "roster-name")),
+            ],
+            copies_per_identifier={"f1": 3},
+            scanned_files=40,
+        )
+
+    def test_summary_contains_no_paths_or_path_fragments(self):
+        text = report.render_summary(self.r, gaps=[])
+        for leak in ("/kb", "health", "aurelia", "vance", "grandmother", "family"):
+            self.assertNotIn(leak, text.lower(), leak)
+
+    def test_summary_still_carries_the_numbers_that_matter(self):
+        text = report.render_summary(self.r, gaps=[])
+        self.assertIn("reachable: 1", text)
+        self.assertIn("sensitive_files: 2", text)
+        self.assertIn("max_copies_of_one_identifier: 3", text)
+
+    def test_summary_counts_by_detector_and_agent(self):
+        text = report.render_summary(self.r, gaps=[])
+        self.assertIn("gov-id: 2", text)
+        self.assertIn("claude-code: 1", text)
+
+    def test_summary_names_gaps_by_count_not_path(self):
+        from pathlib import Path
+        gap = ConfigGap(Path("/home/u/.secret-agent/cfg.json"), "invalid JSON")
+        text = report.render_summary(self.r, gaps=[gap])
+        self.assertIn("config_gaps: 1", text)
+        self.assertNotIn("secret-agent", text)
+
+
+class TestLaunchRootCaveat(unittest.TestCase):
+    """Roots passed on the command line appear in no file. Say so every time."""
+
+    def test_summary_always_states_the_launch_root_limit(self):
+        self.assertIn("launch_roots_visible: partial", report.render_summary(Result(), gaps=[]))
+
+    def test_text_report_names_the_limit_and_the_remedy(self):
+        text = report.render_text(Result(), gaps=[]).lower()
+        self.assertIn("--assume-root", text)

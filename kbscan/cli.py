@@ -50,6 +50,10 @@ def _parser() -> argparse.ArgumentParser:
         sp.add_argument("--no-derived", action="store_true",
                         help="skip shell history and agent session directories")
         sp.add_argument("--json", action="store_true", help="emit JSON instead of text")
+        sp.add_argument("--assume-root", action="append", default=[], metavar="PATH",
+                        help="a directory you launch agents in; repeatable")
+        sp.add_argument("--summary", action="store_true",
+                        help="counts only, no paths; use this when an agent reads the output")
 
     common(sub.add_parser("assess", help="one-off assessment"))
     b = sub.add_parser("baseline", help="record current state for later checks")
@@ -64,8 +68,9 @@ def _parser() -> argparse.ArgumentParser:
 def _run(args) -> tuple[scan.Result, list]:
     home = Path(args.home)
     config_dir = Path(args.config_dir)
-    grants, gaps = harnesses.discover_with_gaps(home)
     paths = [Path(p) for p in args.paths]
+    grants, gaps = harnesses.discover_with_gaps(
+        home, search_roots=paths, assumed_roots=[Path(p) for p in args.assume_root])
     if not args.no_derived:
         paths += targets.derived_copy_targets(home)
     result = scan.assess(paths, grants, salt=_salt(config_dir), roster=_roster(args.roster, config_dir))
@@ -93,9 +98,12 @@ def main(argv=None) -> int:
             print("no change since baseline")
         return 1 if d.new else 0
 
-    print(result.to_json() if args.json else report.render_text(result, gaps), end="" if args.json else "")
-    if args.json:
-        print()
+    if args.summary:
+        print(report.render_summary(result, gaps), end="")
+    elif args.json:
+        print(result.to_json())
+    else:
+        print(report.render_text(result, gaps), end="")
     return 1 if result.exposed_count else 0
 
 

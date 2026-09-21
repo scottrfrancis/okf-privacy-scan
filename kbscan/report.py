@@ -33,6 +33,10 @@ def render_text(result: Result, gaps) -> str:
         for g in gaps:
             lines.append(f"  {g.path}  ({g.reason})")
 
+    lines.append("")
+    lines.append("Directories passed to an agent on its command line appear in no file, so")
+    lines.append("they cannot be discovered. Declare any you use with --assume-root PATH.")
+
     worst = max(result.copies_per_identifier.values(), default=0)
     lines.append("")
     lines.append(
@@ -59,4 +63,36 @@ def render_text(result: Result, gaps) -> str:
         for e in sorted(unreachable, key=lambda e: e.path):
             lines.append(f"  {e.path}  ({', '.join(sorted(set(e.detectors)))})")
 
+    return "\n".join(lines) + "\n"
+
+
+def render_summary(result: Result, gaps) -> str:
+    """Counts only. Safe to show an agent whose context leaves the perimeter.
+
+    Paths are disclosure too: a filename can name a clinician, a relative, or a
+    client. This view carries the numbers a detective control needs and nothing
+    that locates a record.
+    """
+    from collections import Counter
+
+    reachable = [e for e in result.exposures if e.reachable]
+    by_detector = Counter(d for e in result.exposures for d in set(e.detectors))
+    by_agent = Counter(a for e in reachable for a in e.agents)
+    by_egress = Counter(x for e in reachable for x in e.egress)
+
+    lines = [
+        f"reachable: {len(reachable)}",
+        f"sensitive_files: {len(result.exposures)}",
+        f"scanned_files: {result.scanned_files}",
+        f"max_copies_of_one_identifier: {max(result.copies_per_identifier.values(), default=0)}",
+        f"config_gaps: {len(gaps)}",
+        f"coverage: {'incomplete' if gaps else 'complete for the agents found'}",
+        "launch_roots_visible: partial",
+        "by_detector:",
+        *[f"  {k}: {v}" for k, v in sorted(by_detector.items())],
+        "reachable_by_agent:",
+        *[f"  {k}: {v}" for k, v in sorted(by_agent.items())],
+        "reachable_by_egress:",
+        *[f"  {k}: {v}" for k, v in sorted(by_egress.items())],
+    ]
     return "\n".join(lines) + "\n"

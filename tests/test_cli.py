@@ -73,3 +73,12 @@ class TestJsonOutput(CliCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSummaryFlag(CliCase):
+    def test_summary_flag_prints_no_paths(self):
+        (self.corpus / "clinic-notes.md").write_text("SSN: 123-45-6789\n")
+        code, out = self.run_cli("assess", str(self.corpus), "--summary")
+        self.assertIn("sensitive_files: 1", out)
+        self.assertNotIn("clinic-notes", out)
+        self.assertNotIn(str(self.corpus), out)

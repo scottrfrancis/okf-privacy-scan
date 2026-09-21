@@ -51,6 +51,23 @@ class TestPaymentCard(unittest.TestCase):
     def test_luhn_invalid_number_is_not_reported(self):
         self.assertEqual(detectors.scan_text("4111 1111 1111 1112", salt=b"s"), [])
 
+    def test_luhn_valid_number_without_a_card_network_prefix_is_not_reported(self):
+        """Luhn passes one random digit string in ten. The prefix does the real filtering."""
+        for n in ("1234567890123452", "8000123456789018", "9900123456789017"):
+            self.assertEqual(detectors.scan_text(n, salt=b"s"), [], n)
+
+    def test_each_major_network_prefix_is_still_reported(self):
+        cases = {
+            "visa": "4111111111111111",
+            "mastercard": "5555555555554444",
+            "mastercard-2series": "2223003122003222",
+            "amex": "378282246310005",
+            "discover": "6011111111111117",
+        }
+        for name, n in cases.items():
+            self.assertEqual([f.detector for f in detectors.scan_text(n, salt=b"s")],
+                             ["payment-card"], name)
+
 
 class TestCredentials(unittest.TestCase):
     def test_private_key_header(self):

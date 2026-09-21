@@ -62,6 +62,25 @@ def _luhn_ok(digits: str) -> bool:
     return total % 10 == 0
 
 
+def _card_network(digits: str) -> bool:
+    """Issuer prefix for the major networks. This, not Luhn, does most of the filtering."""
+    n = len(digits)
+    two, four, six = int(digits[:2]), int(digits[:4]), int(digits[:6])
+    if digits[0] == "4":                                   # Visa
+        return n in (13, 16, 19)
+    if 51 <= two <= 55 or 2221 <= four <= 2720:            # Mastercard
+        return n == 16
+    if two in (34, 37):                                    # American Express
+        return n == 15
+    if four == 6011 or two == 65 or 644 <= int(digits[:3]) <= 649 or 622126 <= six <= 622925:
+        return n in (16, 19)                               # Discover
+    if 3528 <= four <= 3589:                               # JCB
+        return 16 <= n <= 19
+    if 300 <= int(digits[:3]) <= 305 or two in (36, 38):   # Diners Club
+        return 14 <= n <= 19
+    return False
+
+
 def _valid_gov_id(area: str, group: str, serial: str) -> bool:
     """Structural validity only. Cuts the obvious false positives, nothing more."""
     if area in ("000", "666") or area[0] == "9":
@@ -92,12 +111,13 @@ def scan_text(text: str, salt: bytes, roster: list[str] | None = None) -> list[F
 
     for m in _DIGIT_RUN.finditer(text):
         digits = re.sub(r"\D", "", m.group())
-        if not (13 <= len(digits) <= 19) or not _luhn_ok(digits) or not claim(*m.span()):
+        if not (13 <= len(digits) <= 19) or not _card_network(digits) or not _luhn_ok(digits) \
+                or not claim(*m.span()):
             continue
         found.append(
             Finding("payment-card", _line_of(text, m.start()),
                     _fingerprint(salt, digits),
-                    f"payment card, {len(digits)} digits, passes Luhn")
+                    f"payment card, {len(digits)} digits, network prefix and Luhn")
         )
 
     for m in _PRIVATE_KEY.finditer(text):

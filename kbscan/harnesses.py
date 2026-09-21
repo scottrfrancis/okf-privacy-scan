@@ -11,6 +11,7 @@ read as clean.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -24,6 +25,7 @@ class Grant:
     source: Path
     models: str = "unknown"          # cloud | local | unknown
     egress: tuple[str, ...] = field(default_factory=tuple)
+    kind: str = "declared"           # declared | implicit | assumed
 
 
 @dataclass(frozen=True)
@@ -88,18 +90,58 @@ _ADAPTERS = {
 }
 
 
-def discover_with_gaps(home: Path) -> tuple[list[Grant], list[ConfigGap]]:
+_PRUNE = {".git", ".hg", ".svn", "node_modules", "__pycache__", ".venv", "venv", ".tox"}
+
+
+def _project_claude_dirs(search_roots, home: Path):
+    """Find .claude directories under the search roots.
+
+    A .claude directory is evidence that an agent is launched in its parent, which
+    makes the parent a working root even though no file records it as one. The
+    global config at ~/.claude is excluded: it is configuration, not a launch site.
+    """
+    home = Path(home).resolve()
+    for root in search_roots:
+        root = Path(root)
+        if not root.is_dir():
+            continue
+        for dirpath, dirnames, _ in os.walk(root):
+            if ".claude" in dirnames:
+                found = Path(dirpath) / ".claude"
+                if Path(dirpath).resolve() != home:
+                    yield found
+                dirnames.remove(".claude")
+            dirnames[:] = [d for d in dirnames if d not in _PRUNE]
+
+
+def discover_with_gaps(home: Path, search_roots=(), assumed_roots=()) -> tuple[list[Grant], list[ConfigGap]]:
     grants: list[Grant] = []
     gaps: list[ConfigGap] = []
-    for rel, adapter in _ADAPTERS.items():
-        source = Path(home) / rel
-        if not source.exists():
-            continue
+
+    def read(source: Path, adapter):
         data, problem = _load(source)
         if problem:
             gaps.append(ConfigGap(source, problem))
-            continue
-        grants.extend(adapter(data, source))
+        else:
+            grants.extend(adapter(data, source))
+
+    for rel, adapter in _ADAPTERS.items():
+        source = Path(home) / rel
+        if source.exists():
+            read(source, adapter)
+
+    for claude_dir in _project_claude_dirs(search_roots, home):
+        grants.append(Grant("claude-code", claude_dir.parent, claude_dir,
+                            models="cloud", egress=("cloud-model",), kind="implicit"))
+        for name in ("settings.json", "settings.local.json"):
+            source = claude_dir / name
+            if source.is_file():
+                read(source, _claude_code)
+
+    for root in assumed_roots:
+        grants.append(Grant("assumed", Path(root), Path("--assume-root"),
+                            models="unknown", kind="assumed"))
+
     return grants, gaps
 
 
