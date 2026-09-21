@@ -52,6 +52,8 @@ def _parser() -> argparse.ArgumentParser:
         sp.add_argument("--json", action="store_true", help="emit JSON instead of text")
         sp.add_argument("--assume-root", action="append", default=[], metavar="PATH",
                         help="a directory you launch agents in; repeatable")
+        sp.add_argument("--sensitive-path", action="append", default=[], metavar="GLOB",
+                        help="treat files matching GLOB, relative to a scanned path, as sensitive")
         sp.add_argument("--summary", action="store_true",
                         help="counts only, no paths; use this when an agent reads the output")
 
@@ -73,7 +75,8 @@ def _run(args) -> tuple[scan.Result, list]:
         home, search_roots=paths, assumed_roots=[Path(p) for p in args.assume_root])
     if not args.no_derived:
         paths += targets.derived_copy_targets(home)
-    result = scan.assess(paths, grants, salt=_salt(config_dir), roster=_roster(args.roster, config_dir))
+    result = scan.assess(paths, grants, salt=_salt(config_dir), roster=_roster(args.roster, config_dir),
+                         sensitive_globs=args.sensitive_path)
     return result, gaps
 
 

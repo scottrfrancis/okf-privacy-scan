@@ -11,7 +11,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import detectors
+from . import detectors, locations
 from .harnesses import Grant
 
 __all__ = ["Exposure", "Result", "Diff", "assess", "diff"]
@@ -20,7 +20,7 @@ SKIP_DIRS = {".git", ".hg", ".svn", "node_modules", "__pycache__", ".venv", "ven
 DEFAULT_MAX_BYTES = 512 * 1024 * 1024   # a safety cap, not a filter
 DEFAULT_CHUNK = 1024 * 1024
 _SNIFF = 8192
-VALUELESS = {"declared-sensitive"}
+VALUELESS = {"declared-sensitive", "encrypted-location", "declared-location"}
 
 
 @dataclass(frozen=True)
@@ -153,25 +153,29 @@ def _chunks(path: Path, chunk_bytes: int):
 
 
 def _walk(targets, max_bytes):
+    """Yield (target, path) so that declared globs can be matched relative to a target."""
     for target in targets:
         target = Path(target)
         if target.is_file():
-            yield target
+            yield target.parent, target
             continue
         for path in sorted(target.rglob("*")):
             if any(part in SKIP_DIRS for part in path.parts):
                 continue
             if path.is_file() and not path.is_symlink():
-                yield path
+                yield target, path
 
 
 def assess(targets, grants, salt: bytes, roster=None, max_bytes: int = DEFAULT_MAX_BYTES,
-           chunk_bytes: int = DEFAULT_CHUNK) -> Result:
+           chunk_bytes: int = DEFAULT_CHUNK, sensitive_globs=()) -> Result:
     result = Result()
     per_identifier: dict[str, set[str]] = {}
     grants = list(grants)
 
-    for path in _walk(targets, max_bytes):
+    files = list(_walk(targets, max_bytes))
+    encrypted = locations.encrypted_paths(p for _, p in files)
+
+    for target, path in files:
         why = _classify(path, max_bytes)
         if why == "large":
             result.skipped_large += 1
@@ -185,6 +189,16 @@ def assess(targets, grants, salt: bytes, roster=None, max_bytes: int = DEFAULT_M
         for i, (text, before) in enumerate(_chunks(path, chunk_bytes)):
             found += detectors.scan_text(text, salt=salt, roster=roster,
                                          front_matter=(i == 0), line_offset=before)
+
+        if path.name not in locations.NOT_CONTENT:
+            if path in encrypted:
+                found.append(detectors.Finding(
+                    "encrypted-location", 0, "location",
+                    "plaintext in a path configured for encryption"))
+            elif sensitive_globs and locations.matches_declared(path.relative_to(target), sensitive_globs):
+                found.append(detectors.Finding(
+                    "declared-location", 0, "location", "matches a declared sensitive path"))
+
         if not found:
             continue
 
