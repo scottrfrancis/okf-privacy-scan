@@ -138,3 +138,7 @@ Every test was written before the code it covers. The three that guard the rules
 never emitting a matched value, never reporting clean on partial coverage, and counting a
 local-model grant as exposure, were each checked by breaking the code and confirming the test
 failed.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).
